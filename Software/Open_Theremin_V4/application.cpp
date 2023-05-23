@@ -7,6 +7,7 @@
 #include "ihandlers.h"
 #include "timer.h"
 #include "EEPROM.h"
+#include "Averager.h"
 
 const AppMode AppModeValues[] = {MUTE, NORMAL};
 const int16_t CalibrationTolerance = 15;
@@ -24,6 +25,9 @@ static float qMeasurement = 0;
 
 static int32_t volCalibrationBase = 0;
 
+#if AUTO_PITCH 
+ Averager pitchAvg(PITCH_AVERAGER_SIZE);
+#endif
 Application::Application()
   : _state(PLAYING),
     _mode(NORMAL) {};
@@ -229,6 +233,7 @@ mloop: // Main loop avoiding the GCC "optimization"
     playStartupSound();
 
     calibrate_pitch();
+    // if (VOLUME_ENABLED) 
     calibrate_volume();
 
     initialiseTimer();
@@ -272,6 +277,20 @@ mloop: // Main loop avoiding the GCC "optimization"
         tmpPitch = ((pitchCalibrationBase - pitch_v) + 2048 - (pitchPotValue << 2));
         tmpPitch = min(tmpPitch, 16383);  // Unaudible upper limit just to prevent DAC overflow
         tmpPitch = max(tmpPitch, 0);      // Silence behing zero beat
+
+#if AUTO_PITCH 
+          static int pitchModFactor=255;
+          int pitchActivity=abs(pitchAvg.process(tmpPitch)-tmpPitch);
+          if (pitchActivity < PITCH_ACTIVE_TRHESHOLD) {
+            if (pitchModFactor>0) pitchModFactor--;
+          }
+          else if (pitchActivity > PITCH_ACTIVE_TRHESHOLD) {
+            if (pitchModFactor<255) pitchModFactor++;
+          }
+          tmpPitch = ((int32_t)tmpPitch*pitchModFactor)>>8;
+          Serial.print ("pitch activity:"); Serial.print (pitchActivity);
+#endif        
+
         setWavetableSampleAdvance(tmpPitch >> registerValue);
         if (tmpPitch != pitch_p)
         { // output new pitch CV value only if pitch value changed (saves runtime resources)
@@ -300,14 +319,21 @@ mloop: // Main loop avoiding the GCC "optimization"
     pitchValueAvailable = false;
   }
 
+  // if (!VOLUME_ENABLED) vScaledVolume=0xffff;
+  // else 
   if (volumeValueAvailable && (vol != vol_p))
   { // If capture event AND volume value changed (saves runtime resources)
+
+    if (!VOLUME_ENABLED) vol=4095;
+
     vol_p = vol;
     vol = max(vol, 5000);
+
 
     vol_v = vol; // Averaging volume values
     vol_v = vol_l + ((vol_v - vol_l) >> 2);
     vol_l = vol_v;
+
 
     switch (_mode)
     {
@@ -369,15 +395,19 @@ void Application::calibrate()
   pitchCalibrationBaseFreq = FREQ_FACTOR / pitchCalibrationBase;
   pitchCalibrationConstant = FREQ_FACTOR / pitchSensitivityConstant / 2 + 200;
 
-  resetVolFlag();
-  resetTimer();
-  saveVolCounter();
-  while (!volumeValueAvailable && timerUnexpiredMillis(10))
-    ; // NOP
-  volCalibrationBase = vol;
+//  if (VOLUME_ENABLE) 
+  {
+    resetVolFlag();
+    resetTimer();
+    saveVolCounter();
+    while (!volumeValueAvailable && timerUnexpiredMillis(10))
+      ; // NOP
+    volCalibrationBase = vol;
+    EEPROM.put(8, volCalibrationBase);
+  }
 
   EEPROM.put(4, pitchCalibrationBase);
-  EEPROM.put(8, volCalibrationBase);
+  
 }
 
 void Application::calibrate_pitch()

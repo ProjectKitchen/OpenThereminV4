@@ -5,7 +5,16 @@
 
 
 // Set to build with serial support
-#define SERIAL_ENABLED 0
+#define SERIAL_ENABLED 1
+
+// Set to enable volume control, else volume will be set to maximum
+#define VOLUME_ENABLED 0
+
+// Set to enable for automatic pitch-down in case of low pitch change activity (< PITCH_ACTIVE_THRESHOLD)
+#define AUTO_PITCH 1
+#define PITCH_AVERAGER_SIZE 300
+#define PITCH_ACTIVE_TRHESHOLD 20
+
 
 // Set to build with logarithmic 1V/oct pitch control voltage output
 #define CV_LOG 1
