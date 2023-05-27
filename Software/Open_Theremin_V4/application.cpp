@@ -25,18 +25,20 @@ static float qMeasurement = 0;
 
 static int32_t volCalibrationBase = 0;
 
-#if AUTO_PITCH 
+#if CHECK_PITCH_ACTIVITY 
  Averager pitchAvg(PITCH_AVERAGER_SIZE);
+ int pitchModFactor=255;
+ int pitchActivity=0;
+ int fade=0;
+ uint32_t pitchTimeout=0;
 #endif
+
 Application::Application()
   : _state(PLAYING),
     _mode(NORMAL) {};
 
 void Application::setup()
 {
-#if SERIAL_ENABLED
-  Serial.begin(Application::BAUD);
-#endif
 
   HW_LED1_ON;
   HW_LED2_OFF;
@@ -60,6 +62,13 @@ void Application::setup()
 
   EEPROM.get(4, pitchCalibrationBase);
   EEPROM.get(8, volCalibrationBase);
+
+#if SERIAL_ENABLED
+  Serial.begin(115200);
+  Serial.println("welcome!");
+  GATE_DRIVE_HIGH;
+#endif
+
 }
 
 void Application::initialiseTimer()
@@ -233,8 +242,7 @@ mloop: // Main loop avoiding the GCC "optimization"
     playStartupSound();
 
     calibrate_pitch();
-    // if (VOLUME_ENABLED) 
-    calibrate_volume();
+    if (VOLUME_ENABLED) calibrate_volume();
 
     initialiseTimer();
     initialiseInterrupts();
@@ -251,11 +259,24 @@ mloop: // Main loop avoiding the GCC "optimization"
   };
 
 #if SERIAL_ENABLED
-  if (timerExpired(TICKS_100_MILLIS))
+  static int cnt=0;
+  if (cnt++>100) 
+ // if (timerExpired(TICKS_100_MILLIS))
   {
-    resetTimer();
-    Serial.write(pitch & 0xff); // Send char on serial (if used)
-    Serial.write((pitch >> 8) & 0xff);
+    cnt=0;
+    // resetTimer();
+    //Serial.write(pitch & 0xff); // Send char on serial (if used)
+    //Serial.write((pitch >> 8) & 0xff);
+    Serial.print("pitch:"); Serial.print(pitch);
+
+    if (VOLUME_ENABLED) { 
+      Serial.print(" vol:"); Serial.print(vScaledVolume);
+    }
+    #if CHECK_PITCH_ACTIVITY 
+      Serial.print ("  pitch activity:"); Serial.print (pitchActivity);
+      Serial.print ("  factor:"); Serial.print (pitchModFactor);
+    #endif
+    Serial.println("");
   }
 #endif
 
@@ -278,17 +299,49 @@ mloop: // Main loop avoiding the GCC "optimization"
         tmpPitch = min(tmpPitch, 16383);  // Unaudible upper limit just to prevent DAC overflow
         tmpPitch = max(tmpPitch, 0);      // Silence behing zero beat
 
-#if AUTO_PITCH 
-          static int pitchModFactor=255;
-          int pitchActivity=abs(pitchAvg.process(tmpPitch)-tmpPitch);
-          if (pitchActivity < PITCH_ACTIVE_TRHESHOLD) {
+#if CHECK_PITCH_ACTIVITY 
+          pitchActivity=abs(pitchAvg.process(tmpPitch)-tmpPitch);
+          if (pitchActivity < PITCH_ACTIVE_THRESHOLD) {
+            if (pitchTimeout< AMP_SHUTDOWN_TIMEOUT ) {
+               pitchTimeout++;
+               if (pitchTimeout==FADE_TIMEOUT ) {
+                 fade=-1;
+               }              
+               if (pitchTimeout==AMP_SHUTDOWN_TIMEOUT ) {
+                // Serial.println("*****************shutdown amp!");
+                GATE_DRIVE_LOW;
+                HW_LED1_OFF;
+                HW_LED2_OFF;
+               }              
+            }
+          }
+          
+          if (pitchTimeout==AMP_SHUTDOWN_TIMEOUT) {
+            if (pitchActivity > ACTIVATE_AMP_THRESHOLD) {
+               // Serial.println("---------------------> start amp!");
+               pitchTimeout=0;
+               GATE_DRIVE_HIGH;
+               HW_LED1_ON;
+               HW_LED2_OFF;
+            }
+          }
+          else if (pitchActivity > PITCH_ACTIVE_THRESHOLD) {
+            fade=1;
+            pitchTimeout=0;
+          }
+
+          if (fade==-1) {
             if (pitchModFactor>0) pitchModFactor--;
+            else fade=0;
           }
-          else if (pitchActivity > PITCH_ACTIVE_TRHESHOLD) {
+          if (fade==1) {
             if (pitchModFactor<255) pitchModFactor++;
+            else fade=0;
           }
-          tmpPitch = ((int32_t)tmpPitch*pitchModFactor)>>8;
-          Serial.print ("pitch activity:"); Serial.print (pitchActivity);
+
+          if (AUTO_PITCH) tmpPitch = ((int32_t)tmpPitch*pitchModFactor)>>8;
+          if (AUTO_VOLUME) vScaledVolume=pitchModFactor<<8;
+          else vScaledVolume=0xffff;
 #endif        
 
         setWavetableSampleAdvance(tmpPitch >> registerValue);
@@ -319,12 +372,9 @@ mloop: // Main loop avoiding the GCC "optimization"
     pitchValueAvailable = false;
   }
 
-  // if (!VOLUME_ENABLED) vScaledVolume=0xffff;
-  // else 
+  if (VOLUME_ENABLED)
   if (volumeValueAvailable && (vol != vol_p))
   { // If capture event AND volume value changed (saves runtime resources)
-
-    if (!VOLUME_ENABLED) vol=4095;
 
     vol_p = vol;
     vol = max(vol, 5000);
@@ -359,6 +409,7 @@ mloop: // Main loop avoiding the GCC "optimization"
 
     tmpVolume = tmpVolume >> 1;
 
+#if (!CHECK_PITCH_ACTIVITY)
     if (!gate_p && (tmpVolume >= GATE_ON))
     {
       gate_p = true;
@@ -375,9 +426,7 @@ mloop: // Main loop avoiding the GCC "optimization"
       // drive the gate low:
       GATE_DRIVE_LOW;
     }
-
-
-
+#endif
     volumeValueAvailable = false;
   }
 

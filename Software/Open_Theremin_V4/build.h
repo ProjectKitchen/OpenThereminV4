@@ -5,16 +5,24 @@
 
 
 // Set to build with serial support
-#define SERIAL_ENABLED 1
+#define SERIAL_ENABLED 0
 
 // Set to enable volume control, else volume will be set to maximum
 #define VOLUME_ENABLED 0
 
-// Set to enable for automatic pitch-down in case of low pitch change activity (< PITCH_ACTIVE_THRESHOLD)
-#define AUTO_PITCH 1
-#define PITCH_AVERAGER_SIZE 300
-#define PITCH_ACTIVE_TRHESHOLD 20
+// Set to enable for monitoring pitch activity (auto-fading volume/pitch in case of activity < PITCH_ACTIVE_THRESHOLD)
+#define CHECK_PITCH_ACTIVITY 1
+#define AUTO_PITCH 0
+#define AUTO_VOLUME 1
 
+// Parameters for activity monitoring
+#define PITCH_AVERAGER_SIZE 300
+#define PITCH_ACTIVE_THRESHOLD 120
+#define FADE_TIMEOUT 800
+
+// Parameters for amplifier on/off via Gate Voltage + MOSFET Transistor
+#define ACTIVATE_AMP_THRESHOLD 300
+#define AMP_SHUTDOWN_TIMEOUT  5000
 
 // Set to build with logarithmic 1V/oct pitch control voltage output
 #define CV_LOG 1

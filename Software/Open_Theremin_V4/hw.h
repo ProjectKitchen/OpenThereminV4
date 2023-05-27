@@ -17,7 +17,7 @@
 
 #define GATE_PULLUP         (DDRC &= ~(1<<PORTC2)); (PORTC |= (1<<PORTC2))
 #define GATE_SENSE          (PINC & (1<<PORTC2))
-#define GATE_DRIVE_HIGH     (DDRC |= (1<<PORTC2))
+#define GATE_DRIVE_HIGH     (DDRC |= (1<<PORTC2)); (PORTC |= (1<<PORTC2))
 #define GATE_DRIVE_LOW      (PORTC &= ~(1<<PORTC2)); (DDRC |= (1<<PORTC2))
 
 #endif // _HW_H
